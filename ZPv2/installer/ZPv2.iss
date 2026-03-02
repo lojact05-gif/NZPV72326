@@ -36,13 +36,13 @@ Name: "{autodesktop}\ZPv2"; Filename: "{app}\ZPv2.Ui.exe"; Tasks: desktopicon
 Name: "desktopicon"; Description: "Criar atalho no desktop"; GroupDescription: "Atalhos:"
 
 [Run]
-Filename: "{sys}\sc.exe"; Parameters: "stop ""ZPv2Service"""; Flags: runhidden waituntilterminated ignoreerrors
-Filename: "{sys}\sc.exe"; Parameters: "create ""ZPv2Service"" binPath= ""{app}\ZPv2.Service.exe"" start= auto DisplayName= ""ZPv2 Service"""; Flags: runhidden waituntilterminated ignoreerrors
-Filename: "{sys}\sc.exe"; Parameters: "config ""ZPv2Service"" binPath= ""{app}\ZPv2.Service.exe"" start= auto DisplayName= ""ZPv2 Service"""; Flags: runhidden waituntilterminated
-Filename: "{sys}\sc.exe"; Parameters: "description ""ZPv2Service"" ""ZPv2 local print service"""; Flags: runhidden waituntilterminated ignoreerrors
-Filename: "{sys}\sc.exe"; Parameters: "start ""ZPv2Service"""; Flags: runhidden waituntilterminated ignoreerrors
-Filename: "{app}\ZPv2.Ui.exe"; Description: "Abrir ZPv2"; Flags: nowait postinstall skipifsilent skipifdoesntexist
+Filename: "{cmd}"; Parameters: "/C sc.exe stop ""ZPv2Service"" >NUL 2>&1 & exit /b 0"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/C sc.exe create ""ZPv2Service"" binPath= ""{app}\ZPv2.Service.exe"" start= auto DisplayName= ""ZPv2 Service"" >NUL 2>&1 & exit /b 0"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/C sc.exe config ""ZPv2Service"" binPath= ""{app}\ZPv2.Service.exe"" start= auto DisplayName= ""ZPv2 Service"" >NUL 2>&1 & exit /b 0"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/C sc.exe description ""ZPv2Service"" ""ZPv2 local print service"" >NUL 2>&1 & exit /b 0"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/C sc.exe start ""ZPv2Service"" >NUL 2>&1 & exit /b 0"; Flags: runhidden waituntilterminated
+Filename: "{app}\ZPv2.Ui.exe"; Description: "Abrir ZPv2"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{sys}\sc.exe"; Parameters: "stop ""ZPv2Service"""; Flags: runhidden ignoreerrors
-Filename: "{sys}\sc.exe"; Parameters: "delete ""ZPv2Service"""; Flags: runhidden ignoreerrors
+Filename: "{cmd}"; Parameters: "/C sc.exe stop ""ZPv2Service"" >NUL 2>&1 & exit /b 0"; Flags: runhidden
+Filename: "{cmd}"; Parameters: "/C sc.exe delete ""ZPv2Service"" >NUL 2>&1 & exit /b 0"; Flags: runhidden
