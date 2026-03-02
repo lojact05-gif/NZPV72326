@@ -317,7 +317,7 @@ static string ResolveDefaultPrinterName(List<string>? installed = null)
 {
     try
     {
-        using var ps = new PrinterSettings();
+        var ps = new PrinterSettings();
         var raw = (ps.PrinterName ?? string.Empty).Trim();
         if (raw.Length == 0) return string.Empty;
         if (installed is null || installed.Count == 0) return raw;
