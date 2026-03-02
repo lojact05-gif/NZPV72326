@@ -43,6 +43,7 @@ jobs:
             throw "Pasta do projeto ZPv2 não encontrada (nem tools/ZPv2 nem ZPv2)."
           }
 
+      # (Opcional) Mantive teu guard do Program.cs. Se não precisar mais, pode remover esse step.
       - name: Guard Program.cs (PrinterSettings)
         shell: pwsh
         run: |
@@ -54,17 +55,149 @@ jobs:
           $raw = $raw -replace "using\s+var\s+ps\s*=\s*new\s+PrinterSettings\(\)\s*;", "var ps = new PrinterSettings();"
           Set-Content -Path $file -Value $raw -Encoding UTF8
 
-          $lines = Get-Content $file
-          for ($i = 314; $i -le 326; $i++) {
-            if ($i -lt $lines.Count) {
-              "{0,4}: {1}" -f ($i + 1), $lines[$i]
-            }
-          }
-
           if (Select-String -Path $file -Pattern "using\s+var\s+ps\s*=\s*new\s+PrinterSettings\(" -Quiet) {
             throw "Ainda existe 'using var ps = new PrinterSettings();' no Program.cs"
           }
 
+      - name: Restore
+        shell: pwsh
+        run: |
+          Set-Location "${env:WORKDIR}"
+          dotnet restore "${env:SLN_PATH}"
+
+      - name: Publish Service
+        shell: pwsh
+        run: |
+          Set-Location "${env:WORKDIR}"
+          dotnet publish ".\src\ZPv2.Service\ZPv2.Service.csproj" `
+            -c $env:CONFIGURATION `
+            -r $env:RUNTIME `
+            --self-contained $env:SELF_CONTAINED `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o ".\out\publish\Service"
+
+      - name: Publish UI
+        shell: pwsh
+        run: |
+          Set-Location "${env:WORKDIR}"
+          dotnet publish ".\src\ZPv2.Ui\ZPv2.Ui.csproj" `
+            -c $env:CONFIGURATION `
+            -r $env:RUNTIME `
+            --self-contained $env:SELF_CONTAINED `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o ".\out\publish\Ui"
+
+      - name: Stage package for Inno Setup
+        shell: pwsh
+        run: |
+          Set-Location "${env:WORKDIR}"
+          New-Item -ItemType Directory -Force -Path ".\out\publish\_stage" | Out-Null
+
+          Copy-Item -Force -Recurse ".\out\publish\Service\*" ".\out\publish\_stage\"
+          Copy-Item -Force -Recurse ".\out\publish\Ui\*" ".\out\publish\_stage\"
+
+          if (!(Test-Path ".\out\publish\_stage\ZPv2.Service.exe")) { throw "ZPv2.Service.exe não encontrado no stage." }
+          if (!(Test-Path ".\out\publish\_stage\ZPv2.Ui.exe")) { throw "ZPv2.Ui.exe não encontrado no stage." }
+
+          Write-Host "Conteúdo do stage:"
+          Get-ChildItem ".\out\publish\_stage" -Recurse | Select-Object FullName,Length | Format-Table -AutoSize
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y
+
+      # DEBUG + ASSERT: para matar o erro de flags sem tentativa/erro
+      - name: Debug & Assert ZPv2.iss (line 39 + Flags)
+        shell: pwsh
+        run: |
+          Set-Location "${env:WORKDIR}"
+
+          $p = ".\${env:ISS_PATH}"
+          if (!(Test-Path $p)) { throw "ISS não encontrado em: $p" }
+
+          $raw = Get-Content $p -Raw
+          if ($raw -match "skipifdoesntexist") { throw "ISS contém flag inválida: skipifdoesntexist" }
+          if ($raw -match "waituntilterminated") { throw "ISS contém flag inválida: waituntilterminated" }
+
+          Write-Host "=== Lines 30-50 with numbers ($p) ==="
+          $lines = Get-Content $p
+          for ($i=29; $i -lt [Math]::Min(50, $lines.Length); $i++) {
+            $ln = $i + 1
+            Write-Host ("{0,4}: {1}" -f $ln, $lines[$i])
+          }
+
+          Write-Host "=== All lines containing 'Flags:' ==="
+          Select-String -Path $p -Pattern "Flags:" | ForEach-Object { Write-Host $_.Line }
+
+      - name: Build Installer (Inno Setup)
+        shell: pwsh
+        run: |
+          Set-Location "${env:WORKDIR}"
+
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { throw "ISCC.exe not found at: $iscc" }
+          if (!(Test-Path ".\${env:ISS_PATH}")) { throw "ISS not found at: ${env:WORKDIR}\${env:ISS_PATH}" }
+
+          New-Item -ItemType Directory -Force -Path ".\out\installer" | Out-Null
+          $isccLog = ".\out\installer\iscc.log"
+          if (Test-Path $isccLog) { Remove-Item -Force $isccLog }
+
+          Write-Host "Compilando ISS: ${env:ISS_PATH}"
+          & $iscc ".\${env:ISS_PATH}" /DMyAppVersion="${{ github.ref_name }}" /F"ZPv2Setup" /O".\out\installer" 2>&1 | Tee-Object -FilePath $isccLog
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "---- ISCC LOG (tail 200) ----"
+            if (Test-Path $isccLog) { Get-Content $isccLog -Tail 200 }
+            throw "ISCC failed with exit code $LASTEXITCODE"
+          }
+
+          $installer = ".\out\installer\ZPv2Setup.exe"
+          if (!(Test-Path $installer)) {
+            Write-Host "---- ISCC LOG (tail 200) ----"
+            if (Test-Path $isccLog) { Get-Content $isccLog -Tail 200 }
+            throw "Installer not generated at $installer"
+          }
+
+          Write-Host "Conteúdo final de out/installer:"
+          Get-ChildItem ".\out\installer" | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $installer = Join-Path "${env:WORKDIR}" "out\installer\ZPv2Setup.exe"
+          if (!(Test-Path $installer)) { throw "Installer não encontrado em $installer" }
+          $hash = Get-FileHash $installer -Algorithm SHA256
+          "{0}  {1}" -f $hash.Hash.ToLowerInvariant(), "ZPv2Setup.exe" | Set-Content (Join-Path "${env:WORKDIR}" "out\installer\ZPv2Setup.exe.sha256") -Encoding ascii
+
+      # Padroniza artefatos num lugar só (evita path duplicado e falhas)
+      - name: Collect artifacts to root/_artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "_artifacts" | Out-Null
+          Copy-Item -Force (Join-Path "${env:WORKDIR}" "out\installer\ZPv2Setup.exe") "_artifacts\ZPv2Setup.exe"
+          Copy-Item -Force (Join-Path "${env:WORKDIR}" "out\installer\ZPv2Setup.exe.sha256") "_artifacts\ZPv2Setup.exe.sha256"
+          Get-ChildItem "_artifacts" | Select-Object Name,Length | Format-Table -AutoSize
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZPv2Setup
+          path: |
+            _artifacts/ZPv2Setup.exe
+            _artifacts/ZPv2Setup.exe.sha256
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/zpv2-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            _artifacts/ZPv2Setup.exe
+            _artifacts/ZPv2Setup.exe.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Restore
         shell: pwsh
         run: |
