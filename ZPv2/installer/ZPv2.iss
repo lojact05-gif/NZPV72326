@@ -36,22 +36,22 @@ Name: "{autodesktop}\ZPv2"; Filename: "{app}\ZPv2.Ui.exe"; Tasks: desktopicon
 Name: "desktopicon"; Description: "Criar atalho no desktop"; GroupDescription: "Atalhos:"
 
 [Run]
-; Parar serviço somente se existir (evita erro sem precisar ignoreerrors)
+; Stop só se existir
 Filename: "{sys}\sc.exe"; Parameters: "stop ""ZPv2Service"""; Flags: runhidden; Check: ServiceExists('ZPv2Service')
 
-; Criar serviço somente se não existir
+; Create só se não existir
 Filename: "{sys}\sc.exe"; Parameters: "create ""ZPv2Service"" binPath= ""{app}\ZPv2.Service.exe"" start= auto DisplayName= ""ZPv2 Service"""; Flags: runhidden; Check: not ServiceExists('ZPv2Service')
 
-; Configurar serviço se existir (upgrade)
+; Config se existir
 Filename: "{sys}\sc.exe"; Parameters: "config ""ZPv2Service"" binPath= ""{app}\ZPv2.Service.exe"" start= auto DisplayName= ""ZPv2 Service"""; Flags: runhidden; Check: ServiceExists('ZPv2Service')
 
-; Descrição se existir
+; Description se existir
 Filename: "{sys}\sc.exe"; Parameters: "description ""ZPv2Service"" ""ZPv2 local API and thermal print service"""; Flags: runhidden; Check: ServiceExists('ZPv2Service')
 
-; Iniciar serviço se existir
+; Start se existir
 Filename: "{sys}\sc.exe"; Parameters: "start ""ZPv2Service"""; Flags: runhidden; Check: ServiceExists('ZPv2Service')
 
-; Abrir UI após instalar
+; Abrir UI no fim
 Filename: "{app}\ZPv2.Ui.exe"; Description: "Abrir ZPv2"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
