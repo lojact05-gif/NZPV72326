@@ -107,6 +107,8 @@ jobs:
 
           if (!(Test-Path ".\out\publish\_stage\ZPv2.Service.exe")) { throw "ZPv2.Service.exe não encontrado no stage." }
           if (!(Test-Path ".\out\publish\_stage\ZPv2.Ui.exe")) { throw "ZPv2.Ui.exe não encontrado no stage." }
+          Write-Host "Conteúdo do stage:"
+          Get-ChildItem ".\out\publish\_stage" -Recurse | Select-Object FullName,Length | Format-Table -AutoSize
 
       - name: Install Inno Setup
         shell: pwsh
@@ -126,7 +128,8 @@ jobs:
           $isccLog = ".\out\installer\iscc.log"
           if (Test-Path $isccLog) { Remove-Item -Force $isccLog }
 
-          & $iscc ".\${env:ISS_PATH}" /DMyAppVersion="${{ github.ref_name }}" /O".\out\installer" 2>&1 | Tee-Object -FilePath $isccLog
+          Write-Host "Compilando ISS: ${env:ISS_PATH}"
+          & $iscc ".\${env:ISS_PATH}" /DMyAppVersion="${{ github.ref_name }}" /F"ZPv2Setup" /O".\out\installer" 2>&1 | Tee-Object -FilePath $isccLog
           if ($LASTEXITCODE -ne 0) {
             Write-Host "---- ISCC LOG (tail 200) ----"
             if (Test-Path $isccLog) { Get-Content $isccLog -Tail 200 }
@@ -139,6 +142,8 @@ jobs:
             if (Test-Path $isccLog) { Get-Content $isccLog -Tail 200 }
             throw "Installer not generated at $installer"
           }
+          Write-Host "Conteúdo final de out/installer:"
+          Get-ChildItem ".\out\installer" | Select-Object Name,Length | Format-Table -AutoSize
 
       - name: Generate SHA256
         shell: pwsh
