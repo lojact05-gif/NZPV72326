@@ -122,7 +122,23 @@ jobs:
           if (!(Test-Path $iscc)) { throw "ISCC.exe not found at: $iscc" }
           if (!(Test-Path "${env:ISS_PATH}")) { throw "ISS not found at: ${env:WORKDIR}\\${env:ISS_PATH}" }
 
-          & $iscc ".\${env:ISS_PATH}" /DMyAppVersion="${{ github.ref_name }}" /O".\out\installer"
+          New-Item -ItemType Directory -Force -Path ".\out\installer" | Out-Null
+          $isccLog = ".\out\installer\iscc.log"
+          if (Test-Path $isccLog) { Remove-Item -Force $isccLog }
+
+          & $iscc ".\${env:ISS_PATH}" /DMyAppVersion="${{ github.ref_name }}" /O".\out\installer" 2>&1 | Tee-Object -FilePath $isccLog
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "---- ISCC LOG (tail 200) ----"
+            if (Test-Path $isccLog) { Get-Content $isccLog -Tail 200 }
+            throw "ISCC failed with exit code $LASTEXITCODE"
+          }
+
+          $installer = ".\out\installer\ZPv2Setup.exe"
+          if (!(Test-Path $installer)) {
+            Write-Host "---- ISCC LOG (tail 200) ----"
+            if (Test-Path $isccLog) { Get-Content $isccLog -Tail 200 }
+            throw "Installer not generated at $installer"
+          }
 
       - name: Generate SHA256
         shell: pwsh
