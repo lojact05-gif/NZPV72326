@@ -7,7 +7,7 @@ AppVersion={#MyAppVersion}
 AppVersion=2.0.0
 #endif
 AppPublisher=Zaldo
-DefaultDirName={autopf}\ZPv2
+DefaultDirName={pf}\ZPv2
 DefaultGroupName=ZPv2
 DisableProgramGroupPage=no
 UninstallDisplayIcon={app}\ZPv2.Ui.exe
@@ -21,7 +21,7 @@ PrivilegesRequired=admin
 WizardStyle=modern
 
 [Files]
-Source: "..\out\publish\_stage\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\out\publish\_stage\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Dirs]
 Name: "{commonappdata}\ZPv2"; Permissions: users-modify
