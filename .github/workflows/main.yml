@@ -14,6 +14,8 @@ env:
   CONFIGURATION: "Release"
   RUNTIME: "win-x64"
   SELF_CONTAINED: "true"
+  SLN_PATH: "ZPv2.sln"
+  ISS_PATH: "installer/ZPv2.iss"
 
 jobs:
   build-windows-installer:
@@ -23,57 +25,56 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Resolve ZPv2 paths
-        id: paths
-        shell: pwsh
-        run: |
-          $candidates = @("tools/ZPv2", "ZPv2", ".")
-          $workdir = $null
-
-          foreach ($c in $candidates) {
-            $sln = Join-Path $c "ZPv2.sln"
-            if (Test-Path $sln) {
-              $workdir = $c
-              break
-            }
-          }
-
-          if (-not $workdir) {
-            $found = Get-ChildItem -Path . -Recurse -Filter "ZPv2.sln" -File | Select-Object -First 1
-            if ($found) {
-              $workdir = Split-Path -Parent $found.FullName
-            }
-          }
-
-          if (-not $workdir) {
-            throw "ZPv2.sln not found. Expected in tools/ZPv2, ZPv2, or repo root."
-          }
-
-          Set-Location $workdir
-          if (!(Test-Path ".\installer\ZPv2.iss")) {
-            throw "installer/ZPv2.iss not found in $workdir"
-          }
-
-          "workdir=$workdir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "installer=out/installer/ZPv2Setup.exe" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-
-          Write-Host "Resolved workdir: $workdir"
-
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      - name: Resolve Workdir
+        shell: pwsh
+        run: |
+          if (Test-Path "tools/ZPv2") {
+            "WORKDIR=tools/ZPv2" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "WORKDIR resolved: tools/ZPv2"
+          } elseif (Test-Path "ZPv2") {
+            "WORKDIR=ZPv2" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Write-Host "WORKDIR resolved: ZPv2"
+          } else {
+            throw "Pasta do projeto ZPv2 não encontrada (nem tools/ZPv2 nem ZPv2)."
+          }
+
+      - name: Guard Program.cs (PrinterSettings)
+        shell: pwsh
+        run: |
+          Set-Location "${env:WORKDIR}"
+          $file = ".\src\ZPv2.Service\Program.cs"
+          if (!(Test-Path $file)) { throw "Program.cs não encontrado em $file" }
+
+          $raw = Get-Content $file -Raw
+          $raw = $raw -replace "using\s+var\s+ps\s*=\s*new\s+PrinterSettings\(\)\s*;", "var ps = new PrinterSettings();"
+          Set-Content -Path $file -Value $raw -Encoding UTF8
+
+          $lines = Get-Content $file
+          for ($i = 314; $i -le 326; $i++) {
+            if ($i -lt $lines.Count) {
+              "{0,4}: {1}" -f ($i + 1), $lines[$i]
+            }
+          }
+
+          if (Select-String -Path $file -Pattern "using\s+var\s+ps\s*=\s*new\s+PrinterSettings\(" -Quiet) {
+            throw "Ainda existe 'using var ps = new PrinterSettings();' no Program.cs"
+          }
+
       - name: Restore
         shell: pwsh
         run: |
-          Set-Location "${{ steps.paths.outputs.workdir }}"
-          dotnet restore "ZPv2.sln"
+          Set-Location "${env:WORKDIR}"
+          dotnet restore "${env:SLN_PATH}"
 
       - name: Publish Service
         shell: pwsh
         run: |
-          Set-Location "${{ steps.paths.outputs.workdir }}"
+          Set-Location "${env:WORKDIR}"
           dotnet publish ".\src\ZPv2.Service\ZPv2.Service.csproj" `
             -c $env:CONFIGURATION `
             -r $env:RUNTIME `
@@ -85,7 +86,7 @@ jobs:
       - name: Publish UI
         shell: pwsh
         run: |
-          Set-Location "${{ steps.paths.outputs.workdir }}"
+          Set-Location "${env:WORKDIR}"
           dotnet publish ".\src\ZPv2.Ui\ZPv2.Ui.csproj" `
             -c $env:CONFIGURATION `
             -r $env:RUNTIME `
@@ -97,14 +98,15 @@ jobs:
       - name: Stage package for Inno Setup
         shell: pwsh
         run: |
-          Set-Location "${{ steps.paths.outputs.workdir }}"
+          Set-Location "${env:WORKDIR}"
+          New-Item -ItemType Directory -Force -Path ".\out\publish" | Out-Null
           New-Item -ItemType Directory -Force -Path ".\out\publish\_stage" | Out-Null
 
           Copy-Item -Force -Recurse ".\out\publish\Service\*" ".\out\publish\_stage\"
           Copy-Item -Force -Recurse ".\out\publish\Ui\*" ".\out\publish\_stage\"
 
-          if (!(Test-Path ".\out\publish\_stage\ZPv2.Service.exe")) { throw "Missing ZPv2.Service.exe" }
-          if (!(Test-Path ".\out\publish\_stage\ZPv2.Ui.exe")) { throw "Missing ZPv2.Ui.exe" }
+          if (!(Test-Path ".\out\publish\_stage\ZPv2.Service.exe")) { throw "ZPv2.Service.exe não encontrado no stage." }
+          if (!(Test-Path ".\out\publish\_stage\ZPv2.Ui.exe")) { throw "ZPv2.Ui.exe não encontrado no stage." }
 
       - name: Install Inno Setup
         shell: pwsh
@@ -114,37 +116,39 @@ jobs:
       - name: Build Installer (Inno Setup)
         shell: pwsh
         run: |
-          Set-Location "${{ steps.paths.outputs.workdir }}"
+          Set-Location "${env:WORKDIR}"
+
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { throw "ISCC.exe not found at: $iscc" }
+          if (!(Test-Path "${env:ISS_PATH}")) { throw "ISS not found at: ${env:WORKDIR}\\${env:ISS_PATH}" }
 
-          & $iscc ".\installer\ZPv2.iss" /DMyAppVersion="${{ github.ref_name }}" /O".\out\installer"
-
-          if (!(Test-Path ".\out\installer\ZPv2Setup.exe")) {
-            throw "Installer not generated."
-          }
+          & $iscc ".\${env:ISS_PATH}" /DMyAppVersion="${{ github.ref_name }}" /O".\out\installer"
 
       - name: Generate SHA256
         shell: pwsh
         run: |
-          Set-Location "${{ steps.paths.outputs.workdir }}"
-          $hash = Get-FileHash ".\out\installer\ZPv2Setup.exe" -Algorithm SHA256
-          "{0}  {1}" -f $hash.Hash.ToLowerInvariant(), "ZPv2Setup.exe" |
-            Set-Content ".\out\installer\ZPv2Setup.exe.sha256" -Encoding ascii
+          $installer = "${env:WORKDIR}\out\installer\ZPv2Setup.exe"
+          if (!(Test-Path $installer)) { throw "Installer não encontrado em $installer" }
+          $hash = Get-FileHash $installer -Algorithm SHA256
+          "{0}  {1}" -f $hash.Hash.ToLowerInvariant(), "ZPv2Setup.exe" | Set-Content "${env:WORKDIR}\out\installer\ZPv2Setup.exe.sha256" -Encoding ascii
 
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ZPv2Setup
           path: |
-            ${{ steps.paths.outputs.workdir }}/out/installer/ZPv2Setup.exe
-            ${{ steps.paths.outputs.workdir }}/out/installer/ZPv2Setup.exe.sha256
+            ZPv2/out/installer/ZPv2Setup.exe
+            ZPv2/out/installer/ZPv2Setup.exe.sha256
+            tools/ZPv2/out/installer/ZPv2Setup.exe
+            tools/ZPv2/out/installer/ZPv2Setup.exe.sha256
 
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/zpv2-v')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ steps.paths.outputs.workdir }}/out/installer/ZPv2Setup.exe
-            ${{ steps.paths.outputs.workdir }}/out/installer/ZPv2Setup.exe.sha256
+            ZPv2/out/installer/ZPv2Setup.exe
+            ZPv2/out/installer/ZPv2Setup.exe.sha256
+            tools/ZPv2/out/installer/ZPv2Setup.exe
+            tools/ZPv2/out/installer/ZPv2Setup.exe.sha256
           generate_release_notes: true
