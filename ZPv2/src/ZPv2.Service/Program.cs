@@ -171,7 +171,7 @@ app.MapPost("/print", (HttpContext context, PrintJobRequest request, EscPosRende
 
     var installedPrinters = ListInstalledPrinters();
     var defaultPrinter = ResolveDefaultPrinterName(installedPrinters);
-    var printerName = requestedPrinter;
+    var printerName = ResolveRequestedPrinterName(requestedPrinter, installedPrinters);
     if (string.IsNullOrWhiteSpace(printerName))
     {
         printerName = defaultPrinter;
@@ -223,6 +223,7 @@ app.MapPost("/print", (HttpContext context, PrintJobRequest request, EscPosRende
                     ok = true,
                     message = "Impresso na impressora padrão após fallback.",
                     printer = defaultPrinter,
+                    requested_printer = requestedPrinter,
                     fallback_from = printerName
                 });
             }
@@ -232,6 +233,7 @@ app.MapPost("/print", (HttpContext context, PrintJobRequest request, EscPosRende
                 ok = false,
                 error = retry.Message,
                 printer = defaultPrinter,
+                requested_printer = requestedPrinter,
                 fallback_from = printerName
             });
         }
@@ -240,11 +242,23 @@ app.MapPost("/print", (HttpContext context, PrintJobRequest request, EscPosRende
     if (!result.Ok)
     {
         logger.Error("Print failed on printer '" + printerName + "': " + result.Message);
-        return Results.UnprocessableEntity(new { ok = false, error = result.Message, printer = printerName });
+        return Results.UnprocessableEntity(new
+        {
+            ok = false,
+            error = result.Message,
+            printer = printerName,
+            requested_printer = requestedPrinter
+        });
     }
 
-    logger.Info("Print success on printer='" + printerName + "' type='" + (request.Type ?? "RECEIPT") + "'");
-    return Results.Ok(new { ok = true, message = result.Message, printer = printerName });
+    logger.Info("Print success on printer='" + printerName + "' requested='" + requestedPrinter + "' type='" + (request.Type ?? "RECEIPT") + "'");
+    return Results.Ok(new
+    {
+        ok = true,
+        message = result.Message,
+        printer = printerName,
+        requested_printer = requestedPrinter
+    });
 });
 
 app.Run();
@@ -328,4 +342,78 @@ static string ResolveDefaultPrinterName(List<string>? installed = null)
     {
         return string.Empty;
     }
+}
+
+static string ResolveRequestedPrinterName(string? rawRequested, List<string> installed)
+{
+    var requested = NormalizePrinterLookup(rawRequested);
+    if (requested.Length == 0 || installed.Count == 0)
+    {
+        return string.Empty;
+    }
+
+    foreach (var name in installed)
+    {
+        if (string.Equals(name, requested, StringComparison.OrdinalIgnoreCase))
+        {
+            return name;
+        }
+    }
+
+    var requestedKey = NormalizePrinterLookupKey(requested);
+    if (requestedKey.Length == 0)
+    {
+        return string.Empty;
+    }
+
+    foreach (var name in installed)
+    {
+        if (NormalizePrinterLookupKey(name) == requestedKey)
+        {
+            return name;
+        }
+    }
+
+    return string.Empty;
+}
+
+static string NormalizePrinterLookup(string? raw)
+{
+    var value = (raw ?? string.Empty).Trim();
+    if (value.Length == 0)
+    {
+        return string.Empty;
+    }
+
+    // Compatibilidade com valor textual salvo no POS ("NOME (guardada)").
+    value = value.Replace("(guardada)", string.Empty, StringComparison.OrdinalIgnoreCase).Trim();
+    return value;
+}
+
+static string NormalizePrinterLookupKey(string? raw)
+{
+    var value = NormalizePrinterLookup(raw).ToLowerInvariant();
+    if (value.Length == 0)
+    {
+        return string.Empty;
+    }
+
+    var sb = new StringBuilder(value.Length);
+    var lastWasSpace = false;
+    foreach (var ch in value)
+    {
+        if (char.IsWhiteSpace(ch))
+        {
+            if (!lastWasSpace)
+            {
+                sb.Append(' ');
+                lastWasSpace = true;
+            }
+            continue;
+        }
+        lastWasSpace = false;
+        sb.Append(ch);
+    }
+
+    return sb.ToString().Trim();
 }
